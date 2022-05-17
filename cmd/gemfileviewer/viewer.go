@@ -3,6 +3,7 @@ package main
 import (
 	"archive/tar"
 	"compress/gzip"
+	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -11,12 +12,21 @@ import (
 	"path"
 )
 
+var (
+	outputFileNo   = flag.Int("n", -1, "output numbered file N")
+	gemspecFile    = ""
+	fileOutputName = ""
+	fileOutput     = ""
+)
+
 func main() {
-	if len(os.Args) < 2 {
+	flag.Parse()
+
+	if flag.NArg() < 1 {
 		fmt.Println("Missing fileame parameter")
 		os.Exit(1)
 	}
-	err := outputFile(os.Args[1])
+	err := outputFile(flag.Arg(0))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
@@ -41,7 +51,6 @@ func outputFile(filename string) error {
 			return err
 		}
 		err = nil
-		var gemspecfile string
 		switch hdr.Name {
 		case "metadata.gz":
 			fmt.Printf("====== METADATA (%s) ======\n", hdr.Name)
@@ -49,16 +58,22 @@ func outputFile(filename string) error {
 			fmt.Println()
 		case "data.tar.gz":
 			fmt.Printf("====== DATA (%s) ======\n", hdr.Name)
-			gemspecfile, err = showtgz(tr)
+			err = showtgz(tr)
 			fmt.Println()
 		}
 		if err != nil {
 			return err
 		}
-		if gemspecfile != "" {
-			fmt.Printf("====== GEMSPEC ======\n%s\n", gemspecfile)
-		}
 	}
+
+	if gemspecFile != "" {
+		fmt.Printf("====== GEMSPEC ======\n%s\n", gemspecFile)
+	}
+
+	if fileOutput != "" {
+		fmt.Printf("====== FILE OUTPUT (%s) ======\n%s\n", fileOutputName, fileOutput)
+	}
+
 	return nil
 }
 
@@ -74,14 +89,13 @@ func showgz(r io.Reader) error {
 	return zr.Close()
 }
 
-func showtgz(r io.Reader) (string, error) {
-	var gemspecfile string
-
+func showtgz(r io.Reader) error {
 	gzf, err := gzip.NewReader(r)
 	if err != nil {
-		return "", err
+		return err
 	}
 	tarReader := tar.NewReader(gzf)
+	ct := 0
 	for {
 		header, err := tarReader.Next()
 
@@ -90,10 +104,13 @@ func showtgz(r io.Reader) (string, error) {
 		}
 
 		if err != nil {
-			return "", err
+			return err
 		}
 
 		name := header.Name
+
+		ct++
+		fmt.Printf("[%d] ", ct)
 
 		switch header.Typeflag {
 		case tar.TypeDir:
@@ -103,10 +120,17 @@ func showtgz(r io.Reader) (string, error) {
 			if path.Ext(name) == ".gemspec" && path.Dir(name) == "." {
 				gsfile, err := ioutil.ReadAll(tarReader)
 				if err == nil {
-					gemspecfile = string(gsfile)
+					gemspecFile = string(gsfile)
+				}
+			}
+			if ct == *outputFileNo {
+				ofile, err := ioutil.ReadAll(tarReader)
+				if err == nil {
+					fileOutputName = name
+					fileOutput = string(ofile)
 				}
 			}
 		}
 	}
-	return gemspecfile, nil
+	return nil
 }
